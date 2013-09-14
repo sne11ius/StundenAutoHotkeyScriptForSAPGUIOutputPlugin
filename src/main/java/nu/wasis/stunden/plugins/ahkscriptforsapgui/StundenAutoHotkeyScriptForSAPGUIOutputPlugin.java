@@ -96,6 +96,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		for (String sapPspElementName : sapPspElementNames) {
 			LOG.debug("Element: `" + sapPspElementName + "'");
 		}
+		@SuppressWarnings("unused")
 		final Map<String, String> projectsToPSP = createProjectsToPSPMap(workPeriod, configuration, sapPspElementNames);
 		LOG.warn("Not implemented yet.");
 		return interludeBuilder.toString();
