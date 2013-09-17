@@ -11,6 +11,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig {
 	private boolean autoRun;
 	private boolean printProjectMapping;
 	private String autoHotkeyExecutable;
+	private String outputScriptFilename;
 	
 	private Map<String, String> projectMapping = new HashMap<>();
 
@@ -41,4 +42,9 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig {
 	public Map<String, String> getProjectMapping() {
 		return projectMapping;
 	}
+
+	public String getOutputScriptFilename() {
+		return outputScriptFilename;
+	}
+
 }

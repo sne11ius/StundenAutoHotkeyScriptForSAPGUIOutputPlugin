@@ -5,7 +5,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.StringWriter;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -28,10 +27,6 @@ import org.apache.log4j.Logger;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeConstants;
 
-import freemarker.cache.StringTemplateLoader;
-import freemarker.cache.TemplateLoader;
-import freemarker.template.Configuration;
-import freemarker.template.Template;
 import freemarker.template.TemplateException;
 
 @PluginImplementation
@@ -41,20 +36,8 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 
 	private static final Logger LOG = Logger.getLogger(StundenAutoHotkeyScriptForSAPGUIOutputPlugin.class);
 
-	private static final List<String> TEMPLATES = Arrays.asList(
-        "close_sap_worksheet.ftl",
-		"enter_work_hours.ftl",
-		"exit_sap.ftl",
-		"fill_psp.ftl",
-		"get_psp_element_names.ftl",
-		"goto_week.ftl",
-		"open_sap_worksheet.ftl",
-		"pull_all_psps.ftl",
-		"run_sap.ftl"
-	);
-
-	private StringTemplateLoader templateLoader;
-
+	private final SAPScriptGenerator sapScriptGenerator = new SAPScriptGenerator();
+	
 	@Override
 	public void output(final WorkPeriod workPeriod, final Object configuration) {
 		if (null == configuration || !(configuration instanceof StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig)) {
@@ -70,21 +53,16 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 
 	private void run(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
 		LOG.info("Generating script file...");
-		StringWriter writer = new StringWriter();
-		Map<String, String> replacements = getSimpleReplacements(configuration, workPeriod);
-		getTemplateConfiguration().getTemplate("open_sap_worksheet.ftl").process(replacements, writer);
-		final String prelude = writer.toString();
-		writer = new StringWriter();
-		getTemplateConfiguration().getTemplate("exit_sap.ftl").process(replacements, writer);
-		final String postlude = writer.toString();
-		
+		final Map<String, String> replacements = getSimpleReplacements(configuration, workPeriod);
+		final String prelude = sapScriptGenerator.getScript(AHKScriptFile.OPEN_SAP_WORKSHEET, replacements);
+		final String postlude = sapScriptGenerator.getScript(AHKScriptFile.EXIT_SAP, replacements);
 		final String interlude = generateInterlude(workPeriod, configuration);
 		
 		final String fullScript = prelude + interlude + postlude;
 		
-		System.out.println("Result Script:");
-		System.out.println("==============");
-		System.out.println(fullScript);
+		if (null != configuration.getOutputScriptFilename()) {
+			IOUtils.write(fullScript, new FileOutputStream(new File(configuration.getOutputScriptFilename())));
+		}
 		
 		if (configuration.isAutoRun()) {
 			final String filename = UUID.randomUUID().toString();
@@ -99,7 +77,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		LOG.info("...done.");
 	}
 
-	private String generateInterlude(WorkPeriod workPeriod, StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
+	private String generateInterlude(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
 		Map<String, String> projectMapping = configuration.getProjectMapping();
 		if (!isProjectMappingComplete(workPeriod, projectMapping)) {
 			projectMapping = createProjectMapping(workPeriod, configuration);
@@ -138,24 +116,16 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		for (final Day day : workPeriod.getDays()) {
 			final DateTime currentDate = day.getDate();
 			if (1 == currentDate.getDayOfMonth() || DateTimeConstants.MONDAY == currentDate.getDayOfWeek()) {
-				interludeBuilder.append(gotoWeek(currentDate));
+				interludeBuilder.append(sapScriptGenerator.createGotoWeekScript(currentDate));
 			}
 		}
 		return interludeBuilder.toString();
 	}
 	
-	private String gotoWeek(DateTime currentDate) throws IOException, TemplateException {
-		final Template template =  getTemplateConfiguration().getTemplate("goto_week.ftl");
-		final Map<String, String> replacements = new HashMap<>();
-		replacements.put("periodBegin", SAPDateUtils.DATE_FORMATTER.print(currentDate));
-		final StringWriter writer = new StringWriter();
-		template.process(replacements, writer);
-		return writer.toString();
-	}
 
 	private Map<String, String> createProjectMapping(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
 		final List<String> sapPspElementNames = getSapPspElementNames(workPeriod, configuration);
-		for (String sapPspElementName : sapPspElementNames) {
+		for (final String sapPspElementName : sapPspElementNames) {
 			LOG.debug("Element: `" + sapPspElementName + "'");
 		}
 		return createProjectsToPSPMap(workPeriod, configuration, sapPspElementNames);
@@ -177,11 +147,11 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		return true;
 	}
 
-	private Map<String, String> createProjectsToPSPMap(WorkPeriod workPeriod, StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration, final List<String> availablePSPNames) throws IOException, TemplateException, InterruptedException {
+	private Map<String, String> createProjectsToPSPMap(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration, final List<String> availablePSPNames) throws IOException, TemplateException, InterruptedException {
 		final Map<String, String> projectsToPSPMap = configuration.getProjectMapping();
 		
-		for (Day day : workPeriod.getDays()) {
-			for (Entry entry : day.getEntries()) {
+		for (final Day day : workPeriod.getDays()) {
+			for (final Entry entry : day.getEntries()) {
 				final String projectName = entry.getProject().getName();
 				if (null == projectsToPSPMap.get(projectName)) {
 					projectsToPSPMap.put(projectName, userSelectPspElement(projectName, availablePSPNames));
@@ -192,7 +162,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		if (LOG.isDebugEnabled()) {
 			LOG.debug("Project Mapping");
 			LOG.debug("===============");
-			for (java.util.Map.Entry<String, String> entry : projectsToPSPMap.entrySet()) {
+			for (final java.util.Map.Entry<String, String> entry : projectsToPSPMap.entrySet()) {
 				LOG.debug(entry.getKey() + " => " + entry.getValue());
 			}
 		}
@@ -204,7 +174,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		return projectsToPSPMap;
 	}
 
-	private String userSelectPspElement(String projectName, List<String> availablePSPNames) throws IOException {
+	private String userSelectPspElement(final String projectName, final List<String> availablePSPNames) throws IOException {
 		String pspElementName = "";
 		while(pspElementName.isEmpty()) {
 			System.out.println("Projekt `" + projectName + "' ist unbekannt. Bitte wählen sie ein zu verwendendes PSP-Element.");
@@ -214,7 +184,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 			}
 			System.out.println(availablePSPNames.size() + "\t - [Ignorieren]");
 			try {
-				int n = Integer.parseInt(new BufferedReader(new InputStreamReader(System.in)).readLine());
+				final int n = Integer.parseInt(new BufferedReader(new InputStreamReader(System.in)).readLine());
 				if (n < 0 || n > availablePSPNames.size()) {
 					System.out.println("Jo Homie, gib eine Zahl zwischen 0 und " + (availablePSPNames.size() - 1) + " ein.");
 				} else {
@@ -224,7 +194,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 						pspElementName = INGORE_INDICATOR;
 					}
 				}
-			} catch (NumberFormatException e) {
+			} catch (final NumberFormatException e) {
 				System.out.println("Jo Homie. Gib eine Zahl ein...");
 			}
 		}
@@ -233,13 +203,10 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 
 	public List<String> getSapPspElementNames(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
 		LOG.debug("Acquiring PSP elements...");
-		final StringWriter writer = new StringWriter();
-		final Template template =  getTemplateConfiguration().getTemplate("get_psp_element_names.ftl");
-		final Map<String, String> simpleReplacements = getSimpleReplacements(configuration, workPeriod);
-		template.process(simpleReplacements, writer);
+		final String getPspElementNamesScript = sapScriptGenerator.getScript(AHKScriptFile.GET_PSP_ELEMENT_NAMES, getSimpleReplacements(configuration, workPeriod));
 		final String filename = UUID.randomUUID().toString();
 		final File tempFile = File.createTempFile(filename, "");
-		IOUtils.write(writer.toString(), new FileOutputStream(tempFile));
+		IOUtils.write(getPspElementNamesScript, new FileOutputStream(tempFile));
 		final Process process = Runtime.getRuntime().exec(new String[] {
 			configuration.getAutoHotkeyExecutable(),
 			tempFile.getAbsolutePath()
@@ -256,7 +223,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		return Arrays.asList(trimAll(processOutput.split("\n")));
 	}
 
-	private String[] trimAll(String[] strings) {
+	private String[] trimAll(final String[] strings) {
 		final String[] trimmed = new String[strings.length];
 		for (int i = 0; i < strings.length; ++i) {
 			trimmed[i] = strings[i].trim();
@@ -264,26 +231,6 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		return trimmed;
 	}
 	
-	private Configuration getTemplateConfiguration() throws IOException {
-		final Configuration templateConfiguration = new Configuration();
-		templateConfiguration.setTemplateLoader(getTemplateLoader());
-		return templateConfiguration;
-	}
-
-	private TemplateLoader getTemplateLoader() throws IOException {
-		if (null == templateLoader) {
-			LOG.debug("Loading templates...");
-
-			templateLoader = new StringTemplateLoader();
-			for (final String template : TEMPLATES) {
-				templateLoader.putTemplate(template, IOUtils.toString(getClass().getResourceAsStream("/templates/" + template)));
-			}
-			
-			LOG.debug("... done");
-		}
-		return templateLoader;
-	}
-
 	private Map<String, String> getSimpleReplacements(final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration, final WorkPeriod workPeriod) {
 		final Map<String, String> replacements = new HashMap<>();
 

@@ -2,12 +2,14 @@ package nu.wasis.stunden.plugins.ahkscriptforsapgui;
 
 import java.io.IOException;
 import java.io.StringWriter;
-import java.util.Arrays;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
+
+import nu.wasis.stunden.plugins.ahkscriptforsapgui.util.SAPDateUtils;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.log4j.Logger;
+import org.joda.time.DateTime;
 
 import freemarker.cache.StringTemplateLoader;
 import freemarker.cache.TemplateLoader;
@@ -18,27 +20,20 @@ public class SAPScriptGenerator {
 
 	private static final Logger LOG = Logger.getLogger(SAPScriptGenerator.class);
 	
-	private static final List<String> TEMPLATES = Arrays.asList(
-        "close_sap_worksheet.ftl",
-		"enter_work_hours.ftl",
-		"exit_sap.ftl",
-		"fill_psp.ftl",
-		"get_psp_element_names.ftl",
-		"goto_week.ftl",
-		"open_sap_worksheet.ftl",
-		"pull_all_psps.ftl",
-		"run_sap.ftl"
-	);
-	
 	private StringTemplateLoader templateLoader;
 	
-	public String getScript(final String templateName, final Map<String, String> replacements) throws TemplateException, IOException {
+	public String createGotoWeekScript(DateTime currentDate) throws IOException, TemplateException {
+		final Map<String, String> replacements = new HashMap<>();
+		replacements.put("periodBegin", SAPDateUtils.DATE_FORMATTER.print(currentDate));
+		return getScript(AHKScriptFile.GOTO_WEEK, replacements);
+	}
+	
+	public String getScript(final AHKScriptFile template, final Map<String, String> replacements) throws TemplateException, IOException {
 		StringWriter writer = new StringWriter();
-		getTemplateConfiguration().getTemplate(templateName).process(replacements, writer);
+		getTemplateConfiguration().getTemplate(template.getFilename()).process(replacements, writer);
 		return writer.toString();
 	}
 	
-
 	private Configuration getTemplateConfiguration() throws IOException {
 		final Configuration templateConfiguration = new Configuration();
 		templateConfiguration.setTemplateLoader(getTemplateLoader());
@@ -50,8 +45,8 @@ public class SAPScriptGenerator {
 			LOG.debug("Loading templates...");
 
 			templateLoader = new StringTemplateLoader();
-			for (final String template : TEMPLATES) {
-				templateLoader.putTemplate(template, IOUtils.toString(getClass().getResourceAsStream("/templates/" + template)));
+			for (final AHKScriptFile template : AHKScriptFile.values()) {
+				templateLoader.putTemplate(template.getFilename(), IOUtils.toString(getClass().getResourceAsStream("/templates/" + template.getFilename())));
 			}
 			
 			LOG.debug("... done");
