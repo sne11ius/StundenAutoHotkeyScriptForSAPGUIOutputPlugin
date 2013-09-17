@@ -20,10 +20,13 @@ import nu.wasis.stunden.model.Entry;
 import nu.wasis.stunden.model.WorkPeriod;
 import nu.wasis.stunden.plugin.OutputPlugin;
 import nu.wasis.stunden.plugins.ahkscriptforsapgui.config.StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig;
-import nu.wasis.stunden.plugins.ahkscriptforsapgui.util.DateUtil;
+import nu.wasis.stunden.plugins.ahkscriptforsapgui.util.SAPDateUtils;
+import nu.wasis.stunden.util.JsonUtils;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.log4j.Logger;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeConstants;
 
 import freemarker.cache.StringTemplateLoader;
 import freemarker.cache.TemplateLoader;
@@ -39,10 +42,15 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 	private static final Logger LOG = Logger.getLogger(StundenAutoHotkeyScriptForSAPGUIOutputPlugin.class);
 
 	private static final List<String> TEMPLATES = Arrays.asList(
-		"get_psp_element_names.ftl",
-		"open_sap_worksheet.ftl",
+        "close_sap_worksheet.ftl",
+		"enter_work_hours.ftl",
 		"exit_sap.ftl",
-		"enter_work_hours.ftl"
+		"fill_psp.ftl",
+		"get_psp_element_names.ftl",
+		"goto_week.ftl",
+		"open_sap_worksheet.ftl",
+		"pull_all_psps.ftl",
+		"run_sap.ftl"
 	);
 
 	private StringTemplateLoader templateLoader;
@@ -88,22 +96,89 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 			});
 			tempFile.delete();
 		 }
+		LOG.info("...done.");
 	}
 
 	private String generateInterlude(WorkPeriod workPeriod, StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
+		Map<String, String> projectMapping = configuration.getProjectMapping();
+		if (!isProjectMappingComplete(workPeriod, projectMapping)) {
+			projectMapping = createProjectMapping(workPeriod, configuration);
+		}
+		
 		final StringBuilder interludeBuilder = new StringBuilder(300); 
+		
+		LOG.warn("Not implemented yet.");
+		
+		// V1
+		// foreach covered week
+		//     open week
+		//     pull all available psps
+		//     foreach pulled psp
+		//         foreach day in current week
+		//             find the entry for this psp and enter it (it will be only one entry due to the magic of the StundenSimplifierPlugin)
+		
+		// V2
+		// foreach day in work period -> easy
+		//     if date is first of month or monday -> easy
+		//         open worksheet at current date -> easy
+		//         pull all worksheet items -> clusterfuck but possible
+		//     foreach entry of day (these will already be simplified by StundenSimplifierPlugin, so no worries)
+		//         find according psp
+		//         enter data to psp
+		
+		// V3
+		// foreach day in work period -> easy
+		//     if date is first of month or monday -> easy
+		//         open worksheet at current date -> easy
+		//     foreach entry of day (these will already be simplified by StundenSimplifierPlugin, so no worries)
+		//         pull according psp -> clusterfuck, but easy
+		//         enter data to psp
+		//         remove psp
+		
+		for (final Day day : workPeriod.getDays()) {
+			final DateTime currentDate = day.getDate();
+			if (1 == currentDate.getDayOfMonth() || DateTimeConstants.MONDAY == currentDate.getDayOfWeek()) {
+				interludeBuilder.append(gotoWeek(currentDate));
+			}
+		}
+		return interludeBuilder.toString();
+	}
+	
+	private String gotoWeek(DateTime currentDate) throws IOException, TemplateException {
+		final Template template =  getTemplateConfiguration().getTemplate("goto_week.ftl");
+		final Map<String, String> replacements = new HashMap<>();
+		replacements.put("periodBegin", SAPDateUtils.DATE_FORMATTER.print(currentDate));
+		final StringWriter writer = new StringWriter();
+		template.process(replacements, writer);
+		return writer.toString();
+	}
+
+	private Map<String, String> createProjectMapping(final WorkPeriod workPeriod, final StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration) throws IOException, TemplateException, InterruptedException {
 		final List<String> sapPspElementNames = getSapPspElementNames(workPeriod, configuration);
 		for (String sapPspElementName : sapPspElementNames) {
 			LOG.debug("Element: `" + sapPspElementName + "'");
 		}
-		@SuppressWarnings("unused")
-		final Map<String, String> projectsToPSP = createProjectsToPSPMap(workPeriod, configuration, sapPspElementNames);
-		LOG.warn("Not implemented yet.");
-		return interludeBuilder.toString();
+		return createProjectsToPSPMap(workPeriod, configuration, sapPspElementNames);
+	}
+
+	private boolean isProjectMappingComplete(final WorkPeriod workPeriod, final Map<String, String> projectMapping) {
+		if (null == projectMapping || projectMapping.isEmpty()) {
+			return false;
+		}
+		if (null != projectMapping || !projectMapping.isEmpty()) {
+			for (final Day day : workPeriod.getDays()) {
+				for (final Entry entry : day.getEntries()) {
+					if (!projectMapping.containsKey(entry.getProject().getName())) {
+						return false;
+					}
+				}
+			}
+		}
+		return true;
 	}
 
 	private Map<String, String> createProjectsToPSPMap(WorkPeriod workPeriod, StundenAutoHotkeyScriptForSAPGUIOutputPluginConfig configuration, final List<String> availablePSPNames) throws IOException, TemplateException, InterruptedException {
-		final Map<String, String> projectsToPSPMap = new HashMap<>();
+		final Map<String, String> projectsToPSPMap = configuration.getProjectMapping();
 		
 		for (Day day : workPeriod.getDays()) {
 			for (Entry entry : day.getEntries()) {
@@ -120,6 +195,10 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 			for (java.util.Map.Entry<String, String> entry : projectsToPSPMap.entrySet()) {
 				LOG.debug(entry.getKey() + " => " + entry.getValue());
 			}
+		}
+		if (configuration.getPrintProjectMapping()) {
+			LOG.info("Printing project mapping:");
+			System.out.println(JsonUtils.GSON.toJson(projectsToPSPMap));
 		}
 		
 		return projectsToPSPMap;
@@ -211,7 +290,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		replacements.put("sapExecutable", configuration.getSapExecutable());
 		replacements.put("username", configuration.getUsername());
 		replacements.put("password", configuration.getPassword());
-		replacements.put("periodBegin", DateUtil.DATE_FORMATTER.print(workPeriod.getBegin()));
+		replacements.put("periodBegin", SAPDateUtils.DATE_FORMATTER.print(workPeriod.getBegin()));
 
 		return replacements;
 	}

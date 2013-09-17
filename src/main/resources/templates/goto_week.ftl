@@ -1,11 +1,6 @@
-<#include "run_sap.ftl">
-;;; Open desired Node in Tree
-Click 38, 185
-Click 100, 200
-Click 100, 200
-WinWait Arbeitszeitblatt
+<#include "close_sap_worksheet.ftl">
 ;;; Activate date field & enter the start date
-Click 161, 190
+Click 166, 195
 Send {Home}
 Send {SHIFT}+{End}
 Send ${periodBegin}

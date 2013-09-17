@@ -1,0 +1,1 @@
+Send, {SHIFT}+{F3}
