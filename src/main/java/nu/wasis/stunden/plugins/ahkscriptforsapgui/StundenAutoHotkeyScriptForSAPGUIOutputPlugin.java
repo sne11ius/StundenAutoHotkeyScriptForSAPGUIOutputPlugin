@@ -47,7 +47,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		try {
 			run(workPeriod, myConfig);
 		} catch (IOException | TemplateException | InterruptedException e) {
-			LOG.error("Something went wrong", e);
+			LOG.error("Something went wrong.", e);
 		}
 	}
 
@@ -55,12 +55,12 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		LOG.info("Generating script file...");
 		final Map<String, String> replacements = getSimpleReplacements(configuration, workPeriod);
 		final String prelude = sapScriptGenerator.getScript(AHKScriptFile.OPEN_SAP_WORKSHEET, replacements);
-		final String postlude = sapScriptGenerator.getScript(AHKScriptFile.EXIT_SAP, replacements);
 		final String interlude = generateInterlude(workPeriod, configuration);
+		final String postlude = sapScriptGenerator.getScript(AHKScriptFile.EXIT_SAP, replacements);
 		
 		final String fullScript = prelude + interlude + postlude;
 		
-		if (null != configuration.getOutputScriptFilename()) {
+		if (null != configuration.getOutputScriptFilename() && !configuration.getOutputScriptFilename().isEmpty()) {
 			IOUtils.write(fullScript, new FileOutputStream(new File(configuration.getOutputScriptFilename())));
 		}
 		
@@ -118,6 +118,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 			if (1 == currentDate.getDayOfMonth() || DateTimeConstants.MONDAY == currentDate.getDayOfWeek()) {
 				interludeBuilder.append(sapScriptGenerator.createGotoWeekScript(currentDate));
 			}
+			
 		}
 		return interludeBuilder.toString();
 	}
@@ -138,7 +139,9 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 		if (null != projectMapping || !projectMapping.isEmpty()) {
 			for (final Day day : workPeriod.getDays()) {
 				for (final Entry entry : day.getEntries()) {
-					if (!projectMapping.containsKey(entry.getProject().getName())) {
+					final boolean isWork = !entry.isBreak();
+					final boolean isUnknown = !projectMapping.containsKey(entry.getProject().getName());
+					if (isWork && isUnknown) {
 						return false;
 					}
 				}
@@ -177,16 +180,16 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 	private String userSelectPspElement(final String projectName, final List<String> availablePSPNames) throws IOException {
 		String pspElementName = "";
 		while(pspElementName.isEmpty()) {
-			System.out.println("Projekt `" + projectName + "' ist unbekannt. Bitte wählen sie ein zu verwendendes PSP-Element.");
+			System.out.println("Project `" + projectName + "' is unknown. Pleas choose a PSP element.");
 			for (int i = 0; i < availablePSPNames.size(); ++i) {
 				final String currentPspName = availablePSPNames.get(i);
 				System.out.println(i + "\t- " + currentPspName);
 			}
-			System.out.println(availablePSPNames.size() + "\t - [Ignorieren]");
+			System.out.println(availablePSPNames.size() + "\t - [Ignore]");
 			try {
 				final int n = Integer.parseInt(new BufferedReader(new InputStreamReader(System.in)).readLine());
 				if (n < 0 || n > availablePSPNames.size()) {
-					System.out.println("Jo Homie, gib eine Zahl zwischen 0 und " + (availablePSPNames.size() - 1) + " ein.");
+					System.out.println("Enter an integer between 0 and " + (availablePSPNames.size() - 1) + ".");
 				} else {
 					if (n < availablePSPNames.size()) {
 						pspElementName = availablePSPNames.get(n);
@@ -195,7 +198,7 @@ public class StundenAutoHotkeyScriptForSAPGUIOutputPlugin implements OutputPlugi
 					}
 				}
 			} catch (final NumberFormatException e) {
-				System.out.println("Jo Homie. Gib eine Zahl ein...");
+				System.out.println("You really should enter a number D:");
 			}
 		}
 		return pspElementName;
